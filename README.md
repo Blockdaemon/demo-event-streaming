@@ -8,6 +8,29 @@
     - [HTTPie](https://httpie.io/cli) & [jq](https://jqlang.github.io/jq/download/) CLI tools
   - Docs: https://docs.blockdaemon.com/reference/events-introduction
 
+
+```mermaid
+sequenceDiagram
+    participant Customer
+    participant webhook as Customer Webhook<br>Server
+    participant A as Event Streaming<br>API
+    participant B as Blockdaemon<br>Indexing Stack
+    participant C as RPC Node<br>Cluster
+    Customer->>A: Create webhook target
+    A->>A: Create target
+    A->>webhook: Target status connected
+    Customer->>A: Create matching rule
+    A->>B: Apply rule
+    loop
+        C->>B: Consume blockchain data
+        B->>A: Adds messages to target topic
+    end
+    loop
+        A->>A: Read messages for rule
+        A->>webhook: Send formatted message to target
+    end
+```
+
 ## Step 1. Run webhook receiver (includes a Challenge Response Check)
   - the sample webhook server will respond to CRC token checks with the secret "mysecret123"
   - all webhook posts will be printed to the console
@@ -68,7 +91,8 @@ http POST https://svc.blockdaemon.com/streaming/v2/variables/$VARIABLE_ID/values
 ```
 ## Step 5.
 ```shell
-# create rule combing the webhook target, the blockchain (Ethereum Mainnet), and the target address
+# create rule combining the webhook target, the blockchain (Ethereum Mainnet), and the target address
+# review the different output template options here: https://docs.blockdaemon.com/docs/advanced-templating#using-predefined-templates
 RULE_ID=$(http POST https://svc.blockdaemon.com/streaming/v2/rules \
     X-Api-Key:$XAPIKey \
     name='Ethereum mainnet rule' \
@@ -79,16 +103,16 @@ RULE_ID=$(http POST https://svc.blockdaemon.com/streaming/v2/rules \
     target="$TARGET_ID" \
     condition_type='match_var' \
     is_active:=true \
-    template='ALL_DATA')
+    template='UNIFIED_V1' \
+    | jq -r .id)
 
 # validate the rule
 http GET https://svc.blockdaemon.com/streaming/v2/rules \
     X-Api-Key:$XAPIKey
-
 ```
 
 ## Step 6.
-Observe the webhook events in the webhookserver output. Example below:
+Observe the different webhook events in the webhookserver output. Example below of confirmed_tx event:
 ```json
 {
   "data": {
@@ -148,9 +172,21 @@ ABI decodes to:
 ```
 meaning `60181440870692720000000000` PEPE was transferred from `0xcAFb5420CE411476ef43CCeEa50e71A95b6Ad5B0` to `0x31DA1B45d2570B5722618B8b43b0C805114048EE`
 
-
-
 ## Step 7.
+```shell
+# terminate the reverse proxy to simulate real-world failure and observe the current_buffer_count increase
+http GET https://svc.blockdaemon.com/streaming/v2/targets \
+    X-Api-Key:$XAPIKey 
+[
+        ...
+        "current_buffer_count": 35,
+        "description": "Sample Go Webhookserver target",
+        ...
+]
+```
+
+
+## Step 8.
 ```shell
 # delete the rule to halt further notifitions
 http DELETE https://svc.blockdaemon.com/streaming/v2/rules/$RULE_ID \
